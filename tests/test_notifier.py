@@ -1,11 +1,10 @@
 import unittest
-from core.notifier import Notifier
+from src.notifier import Notifier
 
 class TestNotifier(unittest.TestCase):
-    def test_send_email_notification(self):
-        notifier = Notifier()
-        notifier.send_email_notification('user1', 'Test content')
+    def test_notify(self):
+        # Add test cases for Notifier
+        pass
 
-    def test_generate_summary_report(self):
-        notifier = Notifier()
-        notifier.generate_summary_report(['update1', 'update2'])
+if __name__ == '__main__':
+    unittest.main()

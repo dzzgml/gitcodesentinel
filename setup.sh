@@ -1,226 +1,244 @@
 #!/bin/bash
-# 创建目录结构
-mkdir -p githubcodeSentinel/core
-mkdir -p githubcodeSentinel/services
-mkdir -p githubcodeSentinel/tests
-mkdir -p githubcodeSentinel/config
 
-# 创建核心功能模块文件
-cat > githubcodeSentinel/core/repo_manager.py <<EOL
-# 仓库管理模块，订阅/取消订阅功能
-class RepoManager:
-    def __init__(self):
-        self.repositories = []
+# 创建 GitHubSentinel 目录及其子目录
+mkdir -p GitHubSentinel/src GitHubSentinel/tests
 
-    def add_repository(self, user, repo):
-        self.repositories.append({'user': user, 'repo': repo})
+# 在 src 目录下创建文件并写入初始内容
+cat <<EOL > GitHubSentinel/src/main.py
+from config import Config
+from scheduler import Scheduler
+from github_client import GitHubClient
+from notifier import Notifier
+from report_generator import ReportGenerator
+from subscription_manager import SubscriptionManager
 
-    def remove_repository(self, user, repo):
-        self.repositories = [r for r in self.repositories if not (r['user'] == user and r['repo'] == repo)]
+def main():
+    config = Config()
+    github_client = GitHubClient(config.github_token)
+    notifier = Notifier(config.notification_settings)
+    report_generator = ReportGenerator()
+    subscription_manager = SubscriptionManager(config.subscriptions_file)
+    
+    scheduler = Scheduler(
+        github_client=github_client,
+        notifier=notifier,
+        report_generator=report_generator,
+        subscription_manager=subscription_manager,
+        interval=config.update_interval
+    )
+    
+    scheduler.start()
 
-    def list_subscribed_repositories(self, user):
-        return [r for r in self.repositories if r['user'] == user]
+if __name__ == "__main__":
+    main()
 EOL
 
-cat > githubcodeSentinel/core/updater.py <<EOL
-# 更新获取模块，定期获取最新动态
-class Updater:
+cat <<EOL > GitHubSentinel/src/config.py
+import json
+
+class Config:
     def __init__(self):
-        pass
-
-    def fetch_updates(self, repo):
-        # 实现获取仓库更新的逻辑
-        pass
-
-    def check_for_new_activity(self, repositories):
-        for repo in repositories:
-            self.fetch_updates(repo)
+        self.load_config()
+    
+    def load_config(self):
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+            self.github_token = config.get('github_token')
+            self.notification_settings = config.get('notification_settings')
+            self.subscriptions_file = config.get('subscriptions_file')
+            self.update_interval = config.get('update_interval', 24 * 60 * 60)  # Default to 24 hours
 EOL
 
-cat > githubcodeSentinel/core/notifier.py <<EOL
-# 通知系统，处理通知推送
+cat <<EOL > GitHubSentinel/src/scheduler.py
+import time
+import threading
+
+class Scheduler:
+    def __init__(self, github_client, notifier, report_generator, subscription_manager, interval):
+        self.github_client = github_client
+        self.notifier = notifier
+        self.report_generator = report_generator
+        self.subscription_manager = subscription_manager
+        self.interval = interval
+    
+    def start(self):
+        while True:
+            self.run()
+            time.sleep(self.interval)
+    
+    def run(self):
+        subscriptions = self.subscription_manager.get_subscriptions()
+        updates = self.github_client.fetch_updates(subscriptions)
+        report = self.report_generator.generate(updates)
+        self.notifier.notify(report)
+EOL
+
+cat <<EOL > GitHubSentinel/src/github_client.py
+import requests
+
+class GitHubClient:
+    def __init__(self, token):
+        self.token = token
+    
+    def fetch_updates(self, subscriptions):
+        headers = {
+            'Authorization': f'token {self.token}'
+        }
+        updates = {}
+        for repo in subscriptions:
+            response = requests.get(f'https://api.github.com/repos/{repo}/events', headers=headers)
+            if response.status_code == 200:
+                updates[repo] = response.json()
+        return updates
+EOL
+
+cat <<EOL > GitHubSentinel/src/notifier.py
 class Notifier:
-    def __init__(self):
-        pass
-
-    def send_email_notification(self, user, content):
-        # 实现发送邮件通知的逻辑
-        pass
-
-    def send_slack_notification(self, user, content):
-        # 实现发送 Slack 通知的逻辑
-        pass
-
-    def generate_summary_report(self, updates):
-        # 实现生成总结报告的逻辑
+    def __init__(self, settings):
+        self.settings = settings
+    
+    def notify(self, report):
+        # Implement notification logic, e.g., send email or Slack message
         pass
 EOL
 
-cat > githubcodeSentinel/core/report_generator.py <<EOL
-# 报告生成模块，生成每日/每周汇总报告
+cat <<EOL > GitHubSentinel/src/report_generator.py
 class ReportGenerator:
-    def __init__(self):
-        pass
-
-    def generate_report(self, updates, frequency='daily'):
-        # 实现报告生成逻辑
-        pass
-
-    def format_report(self, report_data):
-        # 实现格式化报告的逻辑
-        pass
+    def generate(self, updates):
+        # Implement report generation logic
+        report = ""
+        for repo, events in updates.items():
+            report += f"Repository: {repo}\n"
+            for event in events:
+                report += f"- {event['type']} at {event['created_at']}\n"
+        return report
 EOL
 
-# 创建服务模块文件
-cat > githubcodeSentinel/services/gitee_api.py <<EOL
-# gitee API接口封装
-class giteeAPI:
-    def __init__(self):
-        pass
+cat <<EOL > GitHubSentinel/src/subscription_manager.py
+import json
 
-    def get_repo_updates(self, repo):
-        # 实现从 gitee 获取仓库更新的逻辑
-        pass
-
-    def get_issue_activity(self, repo):
-        # 实现获取仓库的 issues 活动
-        pass
+class SubscriptionManager:
+    def __init__(self, subscriptions_file):
+        self.subscriptions_file = subscriptions_file
+    
+    def get_subscriptions(self):
+        with open(self.subscriptions_file, 'r') as f:
+            return json.load(f)
 EOL
 
-cat > githubcodeSentinel/services/email_service.py <<EOL
-# 邮件推送服务接口
-class EmailService:
-    def __init__(self):
-        pass
-
-    def send_email(self, to, subject, body):
-        # 实现发送邮件的逻辑
-        pass
-
-    def compose_email_content(self, updates):
-        # 实现根据更新生成邮件内容
-        pass
+cat <<EOL > GitHubSentinel/src/utils.py
+# Add utility functions as needed
 EOL
 
-# 创建测试文件
-cat > githubcodeSentinel/tests/test_repo_manager.py <<EOL
+# 在 tests 目录下创建文件并写入初始内容
+cat <<EOL > GitHubSentinel/tests/test_github_client.py
 import unittest
-from core.repo_manager import RepoManager
+from src.github_client import GitHubClient
 
-class TestRepoManager(unittest.TestCase):
-    def test_add_repository(self):
-        repo_manager = RepoManager()
-        repo_manager.add_repository('user1', 'repo1')
-        self.assertEqual(len(repo_manager.repositories), 1)
-
-    def test_remove_repository(self):
-        repo_manager = RepoManager()
-        repo_manager.add_repository('user1', 'repo1')
-        repo_manager.remove_repository('user1', 'repo1')
-        self.assertEqual(len(repo_manager.repositories), 0)
-
-    def test_list_subscribed_repositories(self):
-        repo_manager = RepoManager()
-        repo_manager.add_repository('user1', 'repo1')
-        repos = repo_manager.list_subscribed_repositories('user1')
-        self.assertEqual(len(repos), 1)
-EOL
-
-cat > githubcodeSentinel/tests/test_updater.py <<EOL
-import unittest
-from core.updater import Updater
-
-class TestUpdater(unittest.TestCase):
+class TestGitHubClient(unittest.TestCase):
     def test_fetch_updates(self):
-        updater = Updater()
-        result = updater.fetch_updates('repo1')
-        self.assertIsNone(result)
+        # Add test cases for GitHubClient
+        pass
 
-    def test_check_for_new_activity(self):
-        updater = Updater()
-        updater.check_for_new_activity(['repo1', 'repo2'])
+if __name__ == '__main__':
+    unittest.main()
 EOL
 
-cat > githubcodeSentinel/tests/test_notifier.py <<EOL
+cat <<EOL > GitHubSentinel/tests/test_notifier.py
 import unittest
-from core.notifier import Notifier
+from src.notifier import Notifier
 
 class TestNotifier(unittest.TestCase):
-    def test_send_email_notification(self):
-        notifier = Notifier()
-        notifier.send_email_notification('user1', 'Test content')
+    def test_notify(self):
+        # Add test cases for Notifier
+        pass
 
-    def test_generate_summary_report(self):
-        notifier = Notifier()
-        notifier.generate_summary_report(['update1', 'update2'])
+if __name__ == '__main__':
+    unittest.main()
 EOL
 
-cat > githubcodeSentinel/tests/test_report_generator.py <<EOL
+cat <<EOL > GitHubSentinel/tests/test_report_generator.py
 import unittest
-from core.report_generator import ReportGenerator
+from src.report_generator import ReportGenerator
 
 class TestReportGenerator(unittest.TestCase):
-    def test_generate_report(self):
-        report_generator = ReportGenerator()
-        report_generator.generate_report(['update1', 'update2'], frequency='daily')
+    def test_generate(self):
+        # Add test cases for ReportGenerator
+        pass
 
-    def test_format_report(self):
-        report_generator = ReportGenerator()
-        report_generator.format_report(['update1', 'update2'])
+if __name__ == '__main__':
+    unittest.main()
 EOL
 
-# 创建配置文件
-cat > githubcodeSentinel/config/config.py <<EOL
-# 配置文件
-class Config:
-    gitee_TOKEN = 'your_gitee_token'
-    EMAIL_SERVICE_API_KEY = 'your_email_service_api_key'
-    REPORT_FREQUENCY = 'daily'  # or 'weekly'
+cat <<EOL > GitHubSentinel/tests/test_subscription_manager.py
+import unittest
+from src.subscription_manager import SubscriptionManager
+
+class TestSubscriptionManager(unittest.TestCase):
+    def test_get_subscriptions(self):
+        # Add test cases for SubscriptionManager
+        pass
+
+if __name__ == '__main__':
+    unittest.main()
 EOL
 
-cat > githubcodeSentinel/config/secrets.py <<EOL
-# 私密信息，放置 API 密钥等
-gitee_API_KEY = 'your_gitee_api_key'
-SENDGRID_API_KEY = 'your_sendgrid_api_key'
-EOL
+cat <<EOL > GitHubSentinel/tests/test_utils.py
+import unittest
+# Add imports for utility functions to test
 
-# 创建 main.py 文件
-cat > githubcodeSentinel/main.py <<EOL
-from core.repo_manager import RepoManager
-from core.updater import Updater
-from core.notifier import Notifier
-from core.report_generator import ReportGenerator
-from apscheduler.schedulers.blocking import BlockingScheduler
+class TestUtils(unittest.TestCase):
+    # Add test cases for utility functions
+    pass
 
-# 加载配置
-config = Config()
-
-# 初始化模块
-repo_manager = RepoManager()
-updater = Updater()
-notifier = Notifier()
-report_generator = ReportGenerator()
-
-# 启动定时任务
-scheduler = BlockingScheduler()
-scheduler.add_job(updater.check_for_new_activity, 'interval', hours=1, args=[repo_manager.repositories])
-
-scheduler.start()
+if __name__ == '__main__':
+    unittest.main()
 EOL
 
 # 创建 requirements.txt
-cat > githubcodeSentinel/requirements.txt <<EOL
-apscheduler
+cat <<EOL > GitHubSentinel/requirements.txt
 requests
-unittest
 EOL
 
-# 创建 README.md 文件
-cat > githubcodeSentinel/README.md <<EOL
-# gitee Sentinel
+# 创建 README.md
+cat <<EOL > GitHubSentinel/README.md
+# GitHub Sentinel
 
-gitee Sentinel 是一款开源工具类 AI Agent，专为开发者和项目管理人员设计，能够定期自动获取并汇总订阅的 gitee 仓库最新动态。
+GitHub Sentinel is an open-source tool AI Agent designed for developers and project managers. It automatically retrieves and aggregates updates from subscribed GitHub repositories on a regular basis (daily/weekly). Key features include subscription management, update retrieval, notification system, and report generation.
 
-## 安装依赖
-```bash
-pip install -r requirements.txt
+## Features
+- Subscription management
+- Update retrieval
+- Notification system
+- Report generation
+
+## Getting Started
+1. Install dependencies:
+    \`\`\`sh
+    pip install -r requirements.txt
+    \`\`\`
+
+2. Configure the application by editing \`config.json\`.
+
+3. Run the application:
+    \`\`\`sh
+    python src/main.py
+    \`\`\`
+
+## Configuration
+The configuration file \`config.json\` should contain the following settings:
+\`\`\`json
+{
+    "github_token": "your_github_token",
+    "notification_settings": {
+        "email": "your_email@example.com",
+        "slack_webhook_url": "your_slack_webhook_url"
+    },
+    "subscriptions_file": "subscriptions.json",
+    "update_interval": 86400
+}
+\`\`\`
+EOL
+
+# 提示脚本执行完成
+echo "Project GitHubSentinel setup completed."
